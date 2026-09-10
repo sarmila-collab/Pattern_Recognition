@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Signal Watch — Mission Control Pattern Recognition</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#060a14;
+    --panel:#0c1424;
+    --panel-2:#0f1a2e;
+    --border:#1d2c47;
+    --text:#dce6f5;
+    --muted:#7b8bab;
+    --acquire:#60a5fa;
+    --preprocess:#5eead4;
+    --extract:#a78bfa;
+    --classify:#fbbf24;
+    --decide:#fb7185;
+    --good:#4ade80;
+    --bad:#fb7185;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);}
+  body{
+    font-family:'IBM Plex Mono', monospace;
+    min-height:100vh;
+    display:flex; justify-content:center;
+    background:
+      radial-gradient(ellipse at 20% -10%, rgba(96,165,250,0.10), transparent 45%),
+      radial-gradient(ellipse at 90% 110%, rgba(251,113,133,0.08), transparent 45%),
+      var(--bg);
+  }
+  h1,h2,h3,.display{font-family:'Space Grotesk', sans-serif;}
+  #app{width:100%; max-width:920px; padding:18px; position:relative;}
+
+  .scanlines{
+    pointer-events:none; position:fixed; inset:0;
+    background:repeating-linear-gradient(to bottom, rgba(255,255,255,0.018) 0px, rgba(255,255,255,0.018) 1px, transparent 1px, transparent 3px);
+    mix-blend-mode:overlay; z-index:1;
+  }
+
+  .hud-bar{
+    display:flex; justify-content:space-between; align-items:center;
+    font-size:12px; letter-spacing:0.04em; color:var(--muted);
+    border:1px solid var(--border); border-radius:6px;
+    padding:9px 14px; margin-bottom:16px; background:var(--panel);
+  }
+  .hud-bar b{color:var(--text); font-weight:600;}
+  .hud-dot{display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--good); margin-right:6px; box-shadow:0 0 6px var(--good); animation:pulse 1.6s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.35;}}
+
+  .panel{
+    border:1px solid var(--border); background:linear-gradient(180deg,var(--panel),var(--panel-2));
+    border-radius:10px; padding:26px; position:relative;
+  }
+  .panel::before, .panel::after{
+    content:""; position:absolute; width:16px; height:16px; border:1px solid var(--border); opacity:0.7;
+  }
+  .panel::before{top:-1px; left:-1px; border-right:none; border-bottom:none;}
+  .panel::after{bottom:-1px; right:-1px; border-left:none; border-top:none;}
+
+  .screen{display:none;}
+  .screen.active{display:block; animation:fadein 0.35s ease;}
+  @keyframes fadein{from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);}}
+
+  .eyebrow{font-size:12px; color:var(--muted); letter-spacing:0.03em; margin-bottom:6px;}
+  h1.display{font-size:30px; margin:0 0 6px; font-weight:700; line-height:1.15;}
+  p.lede{color:var(--muted); font-size:14.5px; line-height:1.6; max-width:60ch; margin:0 0 20px;}
+
+  .pipeline-strip{display:flex; gap:8px; flex-wrap:wrap; margin:18px 0 22px;}
+  .stage-chip{
+    flex:1; min-width:130px; border:1px solid var(--border); border-radius:8px; padding:10px 12px;
+    background:rgba(255,255,255,0.02);
+  }
+  .stage-chip .n{font-size:11px; color:var(--muted); margin-bottom:3px;}
+  .stage-chip .t{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13.5px;}
+  .stage-chip .d{font-size:11.5px; color:var(--muted); margin-top:4px; line-height:1.4;}
+
+  label{display:block; font-size:12px; color:var(--muted); margin-bottom:6px;}
+  input[type=text]{
+    width:100%; background:#050910; border:1px solid var(--border); color:var(--text);
+    padding:11px 13px; border-radius:7px; font-family:'IBM Plex Mono',monospace; font-size:14px;
+  }
+  input[type=text]:focus{outline:none; border-color:var(--acquire);}
+
+  .btn{
+    font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:14px;
+    border:1px solid var(--border); background:var(--panel-2); color:var(--text);
+    padding:12px 20px; border-radius:7px; cursor:pointer; transition:border-color .15s, transform .1s;
+  }
+  .btn:hover{border-color:var(--acquire);}
+  .btn:active{transform:scale(0.98);}
+  .btn.primary{background:var(--acquire); color:#04070d; border-color:var(--acquire);}
+  .btn.primary:hover{filter:brightness(1.08);}
+  .btn:disabled{opacity:0.4; cursor:not-allowed;}
+  .btn-row{display:flex; gap:10px; margin-top:20px; flex-wrap:wrap;}
+
+  details.teacher{margin-top:22px; border:1px dashed var(--border); border-radius:8px; padding:12px 14px;}
+  details.teacher summary{cursor:pointer; font-size:12.5px; color:var(--muted); font-weight:600;}
+  details.teacher .body{font-size:13px; color:var(--muted); line-height:1.7; margin-top:10px;}
+  details.teacher .body strong{color:var(--text);}
+
+  /* sequencing screen */
+  .seq-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:20px 0;}
+  .seq-card{
+    border:1px solid var(--border); border-radius:8px; padding:14px 12px; cursor:pointer;
+    background:rgba(255,255,255,0.02); position:relative; min-height:90px; transition:transform .12s, border-color .12s;
+  }
+  .seq-card:hover{transform:translateY(-2px);}
+  .seq-card .num{
+    position:absolute; top:8px; right:8px; width:20px; height:20px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:600;
+    background:var(--border); color:var(--text); opacity:0;
+  }
+  .seq-card.picked .num{opacity:1;}
+  .seq-card .t{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13.5px; margin-top:4px;}
+  .seq-card .d{font-size:11px; color:var(--muted); margin-top:6px; line-height:1.4;}
+  .seq-card.wrongslot{border-color:var(--bad);}
+  .seq-card.rightslot{border-color:var(--good);}
+  .seq-feedback{margin-top:14px; font-size:13px; padding:10px 12px; border-radius:7px; display:none;}
+  .seq-feedback.show{display:block;}
+  .seq-feedback.ok{background:rgba(74,222,128,0.09); border:1px solid rgba(74,222,128,0.3); color:var(--good);}
+  .seq-feedback.no{background:rgba(251,113,133,0.09); border:1px solid rgba(251,113,133,0.3); color:var(--bad);}
+
+  /* round screen */
+  .round-head{display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap; margin-bottom:14px;}
+  .round-head .tag{font-size:11px; color:var(--muted); letter-spacing:.03em;}
+  .round-head h2{margin:4px 0 0; font-size:22px;}
+  .timerbar-wrap{width:100%; height:6px; background:#050910; border-radius:4px; overflow:hidden; margin:14px 0 18px; border:1px solid var(--border);}
+  .timerbar{height:100%; background:var(--preprocess); width:100%; transition:width .1s linear, background .2s;}
+
+  .radar-wrap{display:flex; gap:22px; flex-wrap:wrap; align-items:flex-start; margin-bottom:18px;}
+  .scope{width:180px; height:180px; position:relative; flex:0 0 auto;}
+  .scope svg{width:100%; height:100%;}
+  .telemetry{flex:1; min-width:220px; border:1px solid var(--border); border-radius:8px; padding:12px 14px; background:rgba(255,255,255,0.015);}
+  .telemetry .row{display:flex; justify-content:space-between; font-size:12.5px; padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.04);}
+  .telemetry .row:last-child{border-bottom:none;}
+  .telemetry .row span:first-child{color:var(--muted);}
+
+  .stage-badge{
+    display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:600; letter-spacing:.03em;
+    padding:5px 10px; border-radius:20px; margin-bottom:10px; border:1px solid var(--border);
+  }
+  .stage-badge .sw{width:8px; height:8px; border-radius:50%;}
+
+  .question{font-size:15px; line-height:1.55; margin:6px 0 16px;}
+  .options{display:grid; gap:9px;}
+  .opt{
+    text-align:left; border:1px solid var(--border); background:rgba(255,255,255,0.015); color:var(--text);
+    padding:12px 14px; border-radius:8px; cursor:pointer; font-family:'IBM Plex Mono',monospace; font-size:13.5px;
+    transition:border-color .12s, background .12s;
+  }
+  .opt:hover:not(:disabled){border-color:var(--acquire);}
+  .opt:disabled{cursor:default;}
+  .opt.correct{border-color:var(--good); background:rgba(74,222,128,0.09); color:var(--good);}
+  .opt.incorrect{border-color:var(--bad); background:rgba(251,113,133,0.09); color:var(--bad);}
+
+  .explain{margin-top:16px; padding:12px 14px; border-radius:8px; font-size:13px; line-height:1.6; display:none; border:1px solid var(--border); background:rgba(255,255,255,0.02);}
+  .explain.show{display:block;}
+  .explain b{font-family:'Space Grotesk',sans-serif;}
+
+  .toast{
+    position:fixed; top:16px; right:16px; z-index:5; background:var(--panel-2); border:1px solid var(--good);
+    color:var(--good); padding:10px 16px; border-radius:8px; font-size:13px; font-weight:600;
+    opacity:0; transform:translateY(-8px); transition:all .25s; pointer-events:none;
+  }
+  .toast.show{opacity:1; transform:translateY(0);}
+
+  .contact-complete{text-align:center; padding:10px 0;}
+  .contact-complete .id{font-size:12px; color:var(--muted); margin-bottom:6px;}
+  .contact-complete h3{font-size:24px; margin:0 0 8px;}
+  .contact-complete .score-line{color:var(--muted); font-size:13px; margin-bottom:18px;}
+
+  table.leader{width:100%; border-collapse:collapse; margin-top:14px; font-size:13px;}
+  table.leader th, table.leader td{text-align:left; padding:8px 10px; border-bottom:1px solid var(--border);}
+  table.leader th{color:var(--muted); font-weight:500; font-size:11.5px; text-transform:none;}
+  .empty-note{color:var(--muted); font-size:13px; margin-top:14px;}
+
+  .stat-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:20px 0;}
+  .stat{border:1px solid var(--border); border-radius:8px; padding:14px; text-align:center;}
+  .stat .v{font-family:'Space Grotesk',sans-serif; font-size:26px; font-weight:700;}
+  .stat .l{font-size:11px; color:var(--muted); margin-top:4px;}
+
+  @media (max-width:520px){
+    .stat-grid{grid-template-columns:1fr 1fr;}
+    h1.display{font-size:24px;}
+  }
+</style>
+</head>
+<body>
+<div class="scanlines"></div>
+<div id="app">
+  <div class="hud-bar">
+    <span><span class="hud-dot"></span>SIGNAL WATCH · MISSION CONTROL</span>
+    <span>TEAM <b id="hudTeam">—</b> &nbsp;|&nbsp; SCORE <b id="hudScore">0</b></span>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- START -->
+  <section class="screen active panel" id="screen-start">
+    <div class="eyebrow">CLASSROOM ACTIVITY — AEROSPACE TRACK</div>
+    <h1 class="display">Signal Watch</h1>
+    <p class="lede">Six unidentified contacts are approaching Earth orbit. Your team runs each one through the pattern recognition pipeline — turning raw sensor noise into a correct call — before Mission Control has to act.</p>
+
+    <div class="pipeline-strip" id="pipelineStrip"></div>
+
+    <label for="teamInput">Team callsign</label>
+    <input type="text" id="teamInput" placeholder="e.g. ORBIT-3" maxlength="24">
+
+    <div class="btn-row">
+      <button class="btn primary" id="btnToSequence">Report for duty →</button>
+    </div>
+
+    <details class="teacher">
+      <summary>Facilitator notes</summary>
+      <div class="body">
+        <strong>Time:</strong> ~20–30 minutes for 6 rounds. Run in teams of 2–4 on one shared screen, or have every team play on its own device.<br><br>
+        <strong>Concept:</strong> every round pushes a team through the same five stages — <strong>Acquire → Preprocess → Extract Features → Classify → Decide/Act</strong> — using a real aerospace scenario (debris, satellites, meteors, near-Earth objects, spacecraft faults, and a collision-avoidance call).<br><br>
+        <strong>Discussion prompts after playing:</strong> Which stage caused the most wrong answers, and why? What happens if you skip preprocessing and classify raw, noisy data? Why does the same "debris" classification sometimes lead to "just log it" and other times to "maneuver now"?<br><br>
+        <strong>Leaderboard:</strong> scores saved from this activity are visible to every team using this link/file — good for a live class leaderboard, so mention that before teams save their scores.
+      </div>
+    </details>
+  </section>
+
+  <!-- SEQUENCE MINI-GAME -->
+  <section class="screen panel" id="screen-sequence">
+    <div class="eyebrow">PRE-FLIGHT CHECK</div>
+    <h1 class="display">Sequence the pipeline</h1>
+    <p class="lede">Before Mission Control trusts your calls, prove you know the order. Tap the five stages in the sequence raw data actually flows through.</p>
+    <div class="seq-grid" id="seqGrid"></div>
+    <div class="seq-feedback" id="seqFeedback"></div>
+    <div class="btn-row">
+      <button class="btn" id="btnSeqReset">Reset order</button>
+      <button class="btn primary" id="btnSeqContinue" disabled>Begin tracking →</button>
+    </div>
+  </section>
+
+  <!-- ROUND -->
+  <section class="screen panel" id="screen-round">
+    <div class="round-head">
+      <div>
+        <div class="tag" id="roundTag">CONTACT 1 OF 6</div>
+        <h2 id="roundTitle">Unidentified Contact</h2>
+      </div>
+    </div>
+    <div class="timerbar-wrap"><div class="timerbar" id="timerbar"></div></div>
+
+    <div class="radar-wrap">
+      <div class="scope" id="scope"></div>
+      <div class="telemetry" id="telemetry"></div>
+    </div>
+
+    <div id="stageBadge"></div>
+    <div class="question" id="questionText"></div>
+    <div class="options" id="optionsWrap"></div>
+    <div class="explain" id="explainBox"></div>
+
+    <div class="btn-row" id="nextRow" style="display:none;">
+      <button class="btn primary" id="btnNext">Continue →</button>
+    </div>
+  </section>
+
+  <!-- END -->
+  <section class="screen panel" id="screen-end">
+    <div class="eyebrow">MISSION DEBRIEF</div>
+    <h1 class="display">All contacts resolved</h1>
+    <p class="lede" id="endSummary"></p>
+
+    <div class="stat-grid">
+      <div class="stat"><div class="v" id="statScore">0</div><div class="l">FINAL SCORE</div></div>
+      <div class="stat"><div class="v" id="statAccuracy">0%</div><div class="l">ACCURACY</div></div>
+      <div class="stat"><div class="v" id="statCorrect">0/18</div><div class="l">CORRECT CALLS</div></div>
+    </div>
+
+    <div class="pipeline-strip" id="pipelineStripEnd"></div>
+
+    <div class="btn-row">
+      <button class="btn primary" id="btnSaveScore">Save score to leaderboard</button>
+      <button class="btn" id="btnViewLeader">View leaderboard</button>
+      <button class="btn" id="btnReplay">Play again</button>
+    </div>
+    <div class="empty-note" id="saveNote"></div>
+  </section>
+
+  <!-- LEADERBOARD -->
+  <section class="screen panel" id="screen-leader">
+    <div class="eyebrow">SHARED LEADERBOARD</div>
+    <h1 class="display">Class results</h1>
+    <p class="lede">Visible to every team using this activity.</p>
+    <div id="leaderContent"><div class="empty-note">Loading…</div></div>
+    <div class="btn-row">
+      <button class="btn" id="btnLeaderBack">Back</button>
+    </div>
+  </section>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  const PIPELINE = [
+    {key:'acquire', name:'Acquire', color:'var(--acquire)', desc:'Sensors capture raw signal — radar, optical, IR.'},
+    {key:'preprocess', name:'Preprocess', color:'var(--preprocess)', desc:'Filter noise, calibrate, normalize the data.'},
+    {key:'extract', name:'Extract Features', color:'var(--extract)', desc:'Pull out measurable traits: speed, size, path, signal.'},
+    {key:'classify', name:'Classify', color:'var(--classify)', desc:'Match features against known patterns.'},
+    {key:'decide', name:'Decide & Act', color:'var(--decide)', desc:'Turn the ID into the correct operational response.'}
+  ];
+
+  const ROUNDS = [
+    {
+      call:'CONTACT ALPHA', place:{x:30,y:35,color:'var(--acquire)'},
+      telemetry:{Velocity:'7.4 km/s (relative)', 'Radar Cross-Section':'0.02 m² — fluctuating', Trajectory:'erratic tumble, no propulsion', Signal:'none detected'},
+      stages:[
+        {label:'PREPROCESS', color:'preprocess', q:'Raw radar returns show random spikes from cosmic background noise. What should the pipeline do first?',
+         opts:['Apply a noise filter to remove background clutter','Skip straight to classification','Increase transmitter power','Delete the contact as a sensor error'], correct:0,
+         exp:'Preprocessing removes noise so the features extracted next are trustworthy — classify too early and you classify the noise.'},
+        {label:'CLASSIFY', color:'classify', q:'Cleaned data shows: tiny radar cross-section, erratic tumbling, zero radio signal, no propulsion response. What is Contact Alpha?',
+         opts:['Active satellite','Space debris fragment','Near-Earth asteroid','Meteor'], correct:1,
+         exp:'No signal, no control, and a tiny tumbling cross-section is the signature of a derelict fragment — not a controlled or natural body.'},
+        {label:'DECIDE & ACT', color:'decide', q:'Alpha is confirmed as untracked debris on a stable, non-threatening orbit. What does Mission Control do?',
+         opts:['Log it in the debris catalog and keep monitoring','Order an immediate collision avoidance maneuver','Ignore and delete the track','Launch an interceptor'], correct:0,
+         exp:'Routine debris with no conjunction risk gets cataloged and watched — not acted on.'}
+      ]
+    },
+    {
+      call:'CONTACT BRAVO', place:{x:65,y:22,color:'var(--acquire)'},
+      telemetry:{Velocity:'7.6 km/s — matches circular LEO orbit', 'Radar Cross-Section':'4.1 m² — steady', Trajectory:'smooth, stable ellipse', Signal:'periodic telemetry beacon'},
+      stages:[
+        {label:'PREPROCESS', color:'preprocess', q:'The signal drops out every 90 minutes, matching Earth\u2019s shadow. How should this be handled?',
+         opts:['Flag it as a sensor fault and discard the contact','Normalize the signal against the known eclipse schedule so it isn\u2019t read as a fault','Amplify only the signal peaks','Ignore the trajectory data entirely'], correct:1,
+         exp:'Good preprocessing accounts for expected environmental effects, like eclipses, so they aren\u2019t mistaken for anomalies.'},
+        {label:'CLASSIFY', color:'classify', q:'Steady orbit, consistent cross-section, and a regular telemetry beacon. What is Bravo?',
+         opts:['Active satellite','Debris fragment','Meteor','Malfunctioning spacecraft'], correct:0,
+         exp:'A regular beacon plus a stable orbit is the signature of a healthy, controlled spacecraft.'},
+        {label:'DECIDE & ACT', color:'decide', q:'Bravo is a known operational satellite on a stable path. Action?',
+         opts:['Catalog it and continue routine tracking','Alert the planetary defense team','Command a deorbit burn','Treat it as a collision threat'], correct:0,
+         exp:'A healthy satellite on a normal path just needs routine tracking — nothing more.'}
+      ]
+    },
+    {
+      call:'CONTACT CHARLIE', place:{x:78,y:70,color:'var(--acquire)'},
+      telemetry:{Velocity:'42 km/s — very high', 'Radar Cross-Section':'n/a — optical flare only', Trajectory:'steep, decaying into atmosphere', Signal:'none'},
+      stages:[
+        {label:'PREPROCESS', color:'preprocess', q:'Optical sensors show a fast, brief streak with heavy atmospheric blur. What preprocessing step helps?',
+         opts:['Apply motion-blur correction before measuring brightness and path','Discard the frame','Use radar data only','Average it with the previous night\u2019s images'], correct:0,
+         exp:'Deblurring recovers an accurate track and brightness curve from a smeared optical streak before any feature can be measured reliably.'},
+        {label:'CLASSIFY', color:'classify', q:'Extremely high velocity, steep decaying path, brief optical flare, no radar or radio return. What is Charlie?',
+         opts:['Satellite reentry','Meteor entering the atmosphere','Asteroid on approach','Debris in stable orbit'], correct:1,
+         exp:'Speeds this high combined with a decaying atmospheric path are characteristic of a natural meteor, not an orbiting object.'},
+        {label:'DECIDE & ACT', color:'decide', q:'Charlie burns up harmlessly over open ocean. Action?',
+         opts:['Log the event for atmospheric science and keep scanning','Issue a planetary defense alert','Task a satellite to intercept it','Order an evacuation'], correct:0,
+         exp:'A meteor that burns up is a data point for science, not an operational threat.'}
+      ]
+    },
+    {
+      call:'CONTACT DELTA', place:{x:18,y:68,color:'var(--acquire)'},
+      telemetry:{Velocity:'18 km/s — steady, unpowered', 'Radar Cross-Section':'large, steady optical magnitude', Trajectory:'smooth hyperbolic approach', Signal:'none'},
+      stages:[
+        {label:'PREPROCESS', color:'preprocess', q:'You have several nights of optical observations to work with. What\u2019s the right preprocessing step?',
+         opts:['Stack and align the observations to reduce noise in the orbit estimate','Use only the single clearest frame','Ignore the earlier nights\u2019 data','Randomize the data points'], correct:0,
+         exp:'Combining multiple clean observations reduces measurement error and produces a far more reliable orbit estimate.'},
+        {label:'CLASSIFY', color:'classify', q:'Large, steady object on a smooth unpowered approach, no signal, tracked over multiple nights. What is Delta?',
+         opts:['Active satellite','Near-Earth asteroid','Space debris','Meteor'], correct:1,
+         exp:'A large natural body on an unpowered approach path, tracked over time, is the classic signature of a near-Earth object.'},
+        {label:'DECIDE & ACT', color:'decide', q:'Delta\u2019s current estimate shows a close approach in 6 months, well clear of Earth. Action?',
+         opts:['Alert the planetary defense team and keep refining the trajectory','Ignore it — it\u2019s probably just debris','Immediately launch an interceptor','Delete the track to reduce clutter'], correct:0,
+         exp:'Every near-Earth object gets flagged for tracking refinement, even when the current estimate shows no impact risk — the estimate can change.'}
+      ]
+    },
+    {
+      call:'CONTACT ECHO', place:{x:50,y:50,color:'var(--acquire)'},
+      telemetry:{Velocity:'orbital, but decaying', 'Radar Cross-Section':'fluctuating — tumbling', Trajectory:'slow orbital decay', Signal:'garbled, intermittent — no command response'},
+      stages:[
+        {label:'PREPROCESS', color:'preprocess', q:'Commands to Echo get no response, and its telemetry is garbled. What should preprocessing do before classification?',
+         opts:['Reconstruct the partial telemetry and flag the data gaps, rather than discarding the contact','Discard Echo as unreadable','Assume it\u2019s debris and stop collecting data','Boost only the radio signal strength'], correct:0,
+         exp:'Partial, noisy data should be reconstructed and its gaps flagged — throwing it out loses information that classification still needs.'},
+        {label:'CLASSIFY', color:'classify', q:'Slowly decaying orbit, tumbling cross-section, garbled telemetry, no response to commands. What is Echo?',
+         opts:['A healthy active satellite','A malfunctioning, tumbling spacecraft','A meteor','A near-Earth asteroid'], correct:1,
+         exp:'Degraded — not absent — telemetry, plus tumbling and no command response, points to a spacecraft that has lost control, not a natural object.'},
+        {label:'DECIDE & ACT', color:'decide', q:'Echo is uncontrolled and its decaying orbit could become a hazard later. Action?',
+         opts:['Alert operators, add it to close-watch tracking, and plan for possible deorbit','Ignore it since it\u2019s still transmitting something','Treat it as a confirmed meteor','Launch an immediate intercept mission'], correct:0,
+         exp:'A degrading, uncontrolled spacecraft needs close monitoring and a contingency plan — not panic, and not neglect.'}
+      ]
+    },
+    {
+      call:'CONTACT FOXTROT', place:{x:58,y:42,color:'var(--decide)'},
+      telemetry:{Velocity:'high closing velocity vs. ISS', 'Radar Cross-Section':'small, but consistently tracked', Trajectory:'range shrinking on converging path', Signal:'none'},
+      stages:[
+        {label:'PREPROCESS', color:'preprocess', q:'Two radar passes show Foxtrot\u2019s distance to the ISS shrinking fast. What must preprocessing compute before classification can proceed?',
+         opts:['The rate of change of range and bearing between passes','The object\u2019s color','The ISS crew schedule','The object\u2019s radio frequency'], correct:0,
+         exp:'Closing velocity and bearing rate — derived from comparing passes — are the key measurements a conjunction assessment is built on.'},
+        {label:'CLASSIFY', color:'classify', q:'Small object, no signal, and a range to the ISS that shrinks on every pass. What is this pattern?',
+         opts:['Routine cataloged debris','A probable collision-course threat','An active satellite maneuvering nearby','A meteor burning up'], correct:1,
+         exp:'A converging, shrinking-range trajectory toward a crewed asset is exactly the pattern this pipeline exists to catch early.'},
+        {label:'DECIDE & ACT', color:'decide', q:'Foxtrot is confirmed on a collision course with the ISS within the hour. Action?',
+         opts:['Immediately alert flight controllers and prepare a collision avoidance maneuver','Log it for review next week','Wait for three more orbits of data','Ignore it — small objects rarely matter'], correct:0,
+         exp:'A confirmed close approach to a crewed spacecraft demands an immediate maneuver — this is the whole point of a fast, accurate pipeline: raw signal to correct action, in time.'}
+      ]
+    }
+  ];
+
+  const QUESTION_TIME = 22; // seconds per question
+
+  let state = {
+    team:'CREW-1',
+    roundIdx:0,
+    stageIdx:0,
+    score:0,
+    correctCount:0,
+    totalQuestions: ROUNDS.length * 3,
+    timer:null,
+    timeLeft: QUESTION_TIME,
+    answered:false
+  };
+
+  const $ = id => document.getElementById(id);
+  function showScreen(id){
+    document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+    $(id).classList.add('active');
+  }
+  function toast(msg){
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(()=>t.classList.remove('show'), 1400);
+  }
+
+  function renderPipelineStrip(targetId){
+    const el = $(targetId);
+    el.innerHTML = PIPELINE.map((s,i)=>`
+      <div class="stage-chip" style="border-color:${s.color}44;">
+        <div class="n">STAGE ${i+1}</div>
+        <div class="t" style="color:${s.color}">${s.name}</div>
+        <div class="d">${s.desc}</div>
+      </div>`).join('');
+  }
+  renderPipelineStrip('pipelineStrip');
+  renderPipelineStrip('pipelineStripEnd');
+
+  // ---------- START SCREEN ----------
+  $('btnToSequence').addEventListener('click', ()=>{
+    const val = $('teamInput').value.trim();
+    state.team = val || 'CREW-1';
+    $('hudTeam').textContent = state.team;
+    buildSequenceGame();
+    showScreen('screen-sequence');
+  });
+
+  // ---------- SEQUENCE MINI-GAME ----------
+  let seqPicks = []; // array of PIPELINE keys in click order
+  let seqShuffled = [];
+
+  function shuffle(arr){
+    const a = arr.slice();
+    for(let i=a.length-1;i>0;i--){
+      const j = Math.floor(Math.random()*(i+1));
+      [a[i],a[j]]=[a[j],a[i]];
+    }
+    return a;
+  }
+
+  function buildSequenceGame(){
+    seqPicks = [];
+    seqShuffled = shuffle(PIPELINE);
+    $('btnSeqContinue').disabled = true;
+    $('seqFeedback').className = 'seq-feedback';
+    $('seqFeedback').textContent = '';
+    renderSeqGrid();
+  }
+
+  function renderSeqGrid(){
+    const grid = $('seqGrid');
+    grid.innerHTML = seqShuffled.map(stage=>{
+      const pickIndex = seqPicks.indexOf(stage.key);
+      return `<div class="seq-card ${pickIndex>=0?'picked':''}" data-key="${stage.key}">
+        <div class="num">${pickIndex>=0?pickIndex+1:''}</div>
+        <div class="t" style="color:${stage.color}">${stage.name}</div>
+        <div class="d">${stage.desc}</div>
+      </div>`;
+    }).join('');
+    grid.querySelectorAll('.seq-card').forEach(card=>{
+      card.addEventListener('click', ()=>{
+        const key = card.dataset.key;
+        if(seqPicks.includes(key)) return;
+        seqPicks.push(key);
+        renderSeqGrid();
+        if(seqPicks.length === PIPELINE.length) evaluateSequence();
+      });
+    });
+  }
+
+  function evaluateSequence(){
+    const correctOrder = PIPELINE.map(s=>s.key);
+    const isCorrect = correctOrder.every((k,i)=>k===seqPicks[i]);
+    const fb = $('seqFeedback');
+    fb.className = 'seq-feedback show ' + (isCorrect?'ok':'no');
+    fb.textContent = isCorrect
+      ? 'Correct order — Acquire, Preprocess, Extract Features, Classify, Decide & Act. Your team is cleared to track.'
+      : 'Not quite the flow raw data follows. Correct order: Acquire → Preprocess → Extract Features → Classify → Decide & Act. Review it, then continue whenever you\u2019re ready.';
+    $('btnSeqContinue').disabled = false;
+  }
+
+  $('btnSeqReset').addEventListener('click', buildSequenceGame);
+  $('btnSeqContinue').addEventListener('click', ()=>{
+    state.roundIdx = 0;
+    state.stageIdx = 0;
+    state.score = 0;
+    state.correctCount = 0;
+    updateHud();
+    startRound();
+    showScreen('screen-round');
+  });
+
+  // ---------- ROUND / RADAR SCOPE ----------
+  function drawScope(place){
+    const el = $('scope');
+    el.innerHTML = `
+      <svg viewBox="0 0 200 200">
+        <circle cx="100" cy="100" r="90" fill="none" stroke="var(--border)" stroke-width="1"/>
+        <circle cx="100" cy="100" r="60" fill="none" stroke="var(--border)" stroke-width="1"/>
+        <circle cx="100" cy="100" r="30" fill="none" stroke="var(--border)" stroke-width="1"/>
+        <line x1="100" y1="10" x2="100" y2="190" stroke="var(--border)" stroke-width="1"/>
+        <line x1="10" y1="100" x2="190" y2="100" stroke="var(--border)" stroke-width="1"/>
+        <g style="transform-origin:100px 100px; animation:spin 4s linear infinite;">
+          <path d="M100,100 L100,10 A90,90 0 0,1 155,35 Z" fill="url(#sweepGrad)" opacity="0.35"/>
+        </g>
+        <defs>
+          <linearGradient id="sweepGrad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="var(--preprocess)" stop-opacity="0"/>
+            <stop offset="100%" stop-color="var(--preprocess)" stop-opacity="0.9"/>
+          </linearGradient>
+        </defs>
+        <circle cx="${place.x*2}" cy="${place.y*2}" r="5" fill="${place.color}">
+          <animate attributeName="r" values="4;7;4" dur="1.6s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="${place.x*2}" cy="${place.y*2}" r="10" fill="none" stroke="${place.color}" stroke-width="1" opacity="0.6">
+          <animate attributeName="r" values="6;16;6" dur="1.6s" repeatCount="indefinite"/>
+          <animate attributeName="opacity" values="0.6;0;0.6" dur="1.6s" repeatCount="indefinite"/>
+        </circle>
+      </svg>`;
+    if(!document.getElementById('spinKeyframes')){
+      const style = document.createElement('style');
+      style.id = 'spinKeyframes';
+      style.textContent = '@keyframes spin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}';
+      document.head.appendChild(style);
+    }
+  }
+
+  function drawTelemetry(data){
+    $('telemetry').innerHTML = Object.entries(data).map(([k,v])=>
+      `<div class="row"><span>${k}</span><span>${v}</span></div>`).join('');
+  }
+
+  function startRound(){
+    state.stageIdx = 0;
+    renderStage();
+  }
+
+  function currentRound(){ return ROUNDS[state.roundIdx]; }
+  function currentStage(){ return currentRound().stages[state.stageIdx]; }
+
+  function renderStage(){
+    const round = currentRound();
+    const stage = currentStage();
+    state.answered = false;
+    state.nextAction = 'stage';
+
+    $('roundTag').textContent = `CONTACT ${state.roundIdx+1} OF ${ROUNDS.length} · STEP ${state.stageIdx+1} OF 3`;
+    $('roundTitle').textContent = round.call;
+    drawScope(round.place);
+    drawTelemetry(round.telemetry);
+
+    const stageColorVar = `var(--${stage.color})`;
+    $('stageBadge').innerHTML = `<div class="stage-badge" style="border-color:${stageColorVar}66; color:${stageColorVar}">
+      <span class="sw" style="background:${stageColorVar}"></span>${stage.label}
+    </div>`;
+
+    $('questionText').textContent = stage.q;
+
+    const optsWrap = $('optionsWrap');
+    optsWrap.innerHTML = '';
+    stage.opts.forEach((opt,i)=>{
+      const btn = document.createElement('button');
+      btn.className = 'opt';
+      btn.textContent = opt;
+      btn.addEventListener('click', ()=>handleAnswer(i, btn));
+      optsWrap.appendChild(btn);
+    });
+
+    $('explainBox').className = 'explain';
+    $('explainBox').textContent = '';
+    $('nextRow').style.display = 'none';
+
+    startTimer();
+  }
+
+  function startTimer(){
+    clearInterval(state.timer);
+    state.timeLeft = QUESTION_TIME;
+    const bar = $('timerbar');
+    bar.style.background = 'var(--preprocess)';
+    bar.style.width = '100%';
+    state.timer = setInterval(()=>{
+      state.timeLeft -= 0.1;
+      const pct = Math.max(0, state.timeLeft/QUESTION_TIME*100);
+      bar.style.width = pct + '%';
+      if(pct < 30) bar.style.background = 'var(--decide)';
+      if(state.timeLeft <= 0){
+        clearInterval(state.timer);
+        if(!state.answered) handleAnswer(-1, null);
+      }
+    }, 100);
+  }
+
+  function handleAnswer(choiceIdx, btnEl){
+    if(state.answered) return;
+    state.answered = true;
+    clearInterval(state.timer);
+    const stage = currentStage();
+    const buttons = Array.from($('optionsWrap').children);
+    buttons.forEach(b=>b.disabled = true);
+
+    const isCorrect = choiceIdx === stage.correct;
+    buttons[stage.correct].classList.add('correct');
+    if(!isCorrect && choiceIdx >= 0){
+      buttons[choiceIdx].classList.add('incorrect');
+    }
+
+    if(isCorrect){
+      const timeBonus = Math.max(0, Math.round((state.timeLeft/QUESTION_TIME) * 50));
+      state.score += 100 + timeBonus;
+      state.correctCount += 1;
+      toast('+' + (100+timeBonus) + ' correct call');
+    } else {
+      toast(choiceIdx === -1 ? 'Time expired' : 'Not quite');
+    }
+    updateHud();
+
+    const box = $('explainBox');
+    box.className = 'explain show';
+    box.innerHTML = `<b>${isCorrect ? 'Confirmed.' : 'Debrief:'}</b> ${stage.exp}`;
+
+    $('nextRow').style.display = 'flex';
+    $('btnNext').textContent = (state.stageIdx === 2) ? 'Next contact →' : 'Continue →';
+  }
+
+  // state.nextAction is one of: 'stage', 'roundComplete', 'advanceRound', 'finish'
+  state.nextAction = 'stage';
+
+  $('btnNext').addEventListener('click', ()=>{
+    if(state.nextAction === 'stage'){
+      if(state.stageIdx < 2){
+        state.stageIdx += 1;
+        renderStage();
+      } else {
+        showContactComplete();
+      }
+    } else if(state.nextAction === 'advanceRound'){
+      state.roundIdx += 1;
+      startRound();
+    } else if(state.nextAction === 'finish'){
+      finishMission();
+    }
+  });
+
+  function showContactComplete(){
+    const round = currentRound();
+    const idName = round.stages[1].opts[round.stages[1].correct];
+    $('stageBadge').innerHTML = '';
+    $('timerbar').style.width = '0%';
+    $('questionText').innerHTML = '';
+    $('optionsWrap').innerHTML = `
+      <div class="contact-complete">
+        <div class="id">${round.call} IDENTIFIED AS</div>
+        <h3 style="color:var(--classify)">${idName}</h3>
+        <div class="score-line">Team score: ${state.score}</div>
+      </div>`;
+    $('explainBox').className = 'explain';
+    $('nextRow').style.display = 'flex';
+    const isLast = state.roundIdx === ROUNDS.length-1;
+    $('btnNext').textContent = isLast ? 'Finish mission →' : 'Track next contact →';
+    state.nextAction = isLast ? 'finish' : 'advanceRound';
+  }
+
+  function updateHud(){
+    $('hudScore').textContent = state.score;
+  }
+
+  // ---------- END SCREEN ----------
+  function finishMission(){
+    const accuracy = Math.round((state.correctCount/state.totalQuestions)*100);
+    $('statScore').textContent = state.score;
+    $('statAccuracy').textContent = accuracy + '%';
+    $('statCorrect').textContent = state.correctCount + '/' + state.totalQuestions;
+    $('endSummary').textContent = `Team ${state.team} ran six contacts through the full pipeline — acquire, preprocess, extract features, classify, decide — turning raw sensor noise into six correct operational calls, from a routine debris log to an emergency collision avoidance maneuver.`;
+    $('saveNote').textContent = '';
+    showScreen('screen-end');
+  }
+
+  // ---------- LEADERBOARD (shared storage) ----------
+  $('btnSaveScore').addEventListener('click', async ()=>{
+    const note = $('saveNote');
+    note.textContent = 'Saving…';
+    try{
+      const accuracy = Math.round((state.correctCount/state.totalQuestions)*100);
+      const key = 'leaderboard:' + state.team.replace(/[^a-zA-Z0-9_-]/g,'').slice(0,20) + ':' + Date.now();
+      const payload = JSON.stringify({team:state.team, score:state.score, accuracy, correct:state.correctCount, total:state.totalQuestions});
+      const result = await window.storage.set(key, payload, true);
+      note.textContent = result ? 'Saved. Visible on the shared class leaderboard.' : 'Could not save score — try again.';
+    }catch(e){
+      note.textContent = 'Could not save score right now.';
+    }
+  });
+
+  $('btnViewLeader').addEventListener('click', async ()=>{
+    showScreen('screen-leader');
+    const content = $('leaderContent');
+    content.innerHTML = '<div class="empty-note">Loading…</div>';
+    try{
+      const listResult = await window.storage.list('leaderboard:', true);
+      const keys = (listResult && listResult.keys) ? listResult.keys : [];
+      if(keys.length === 0){
+        content.innerHTML = '<div class="empty-note">No scores saved yet. Be the first team on the board.</div>';
+        return;
+      }
+      const entries = [];
+      for(const k of keys){
+        try{
+          const r = await window.storage.get(k, true);
+          if(r && r.value) entries.push(JSON.parse(r.value));
+        }catch(e){ /* skip unreadable entry */ }
+      }
+      entries.sort((a,b)=>b.score-a.score);
+      const rows = entries.slice(0,15).map((e,i)=>`
+        <tr>
+          <td>${i+1}</td>
+          <td>${e.team}</td>
+          <td>${e.score}</td>
+          <td>${e.accuracy}%</td>
+        </tr>`).join('');
+      content.innerHTML = `<table class="leader">
+        <thead><tr><th>#</th><th>Team</th><th>Score</th><th>Accuracy</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+    }catch(e){
+      content.innerHTML = '<div class="empty-note">Could not load the leaderboard right now.</div>';
+    }
+  });
+
+  $('btnLeaderBack').addEventListener('click', ()=> showScreen('screen-end'));
+
+  $('btnReplay').addEventListener('click', ()=>{
+    state.roundIdx = 0;
+    state.stageIdx = 0;
+    state.score = 0;
+    state.correctCount = 0;
+    updateHud();
+    startRound();
+    showScreen('screen-round');
+  });
+
+})();
+</script>
+</body>
+</html>
